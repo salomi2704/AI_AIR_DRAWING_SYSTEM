@@ -89,23 +89,42 @@ export class MemoryShapeRecognizer implements ShapeRecognizer {
   }
 
   private countCorners(points: Point2D[]): number {
-    if (points.length < 5) return 0;
-    let corners = 0;
+    const n = points.length;
+    if (n < 5) return 0;
+    const rawCorners: number[] = [];
     const threshold = 0.3;
 
-    for (let i = 2; i < points.length - 2; i++) {
-      const prev = points[i - 2];
+    for (let i = 0; i < n; i++) {
+      const prev = points[(i - 2 + n) % n];
       const curr = points[i];
-      const next = points[i + 2];
+      const next = points[(i + 2) % n];
       if (!prev || !curr || !next) continue;
 
       const angle = this.computeAngle(prev, curr, next);
       if (angle < Math.PI * (1 - threshold)) {
-        corners++;
+        rawCorners.push(i);
       }
     }
 
-    return corners;
+    if (rawCorners.length === 0) return 0;
+
+    const merged: number[] = [rawCorners[0]!];
+    for (let i = 1; i < rawCorners.length; i++) {
+      const lastMerged = merged[merged.length - 1];
+      if (rawCorners[i]! - lastMerged! > 3) {
+        merged.push(rawCorners[i]!);
+      }
+    }
+
+    if (merged.length > 1) {
+      const firstIdx = merged[0]!;
+      const lastIdx = merged[merged.length - 1]!;
+      if (n - lastIdx + firstIdx <= 3) {
+        merged.pop();
+      }
+    }
+
+    return merged.length;
   }
 
   private computeAngle(a: Point2D, b: Point2D, c: Point2D): number {

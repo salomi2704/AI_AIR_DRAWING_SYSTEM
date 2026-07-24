@@ -20,6 +20,7 @@ export class MemoryAuthProvider implements AuthProvider {
 
     const token = this.generateToken(user.id);
     this.tokens.set(token.refreshToken, user.id);
+    this.tokens.set(token.accessToken, user.id);
 
     logger.info(`User logged in: ${email}`);
     return token;
