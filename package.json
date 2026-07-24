@@ -1,5 +1,5 @@
 {
-  "name": "ai-air-drawing",
+  "name": "AI-Air-Drawing",
   "version": "1.0.0",
   "description": "Modular AI Air Drawing System - 21 independent packages for gesture-based drawing, AI assistance, and diagram recognition",
   "private": true,
@@ -12,16 +12,12 @@
     ]
   },
   "scripts": {
-    "build": "npm run build:all",
-    "build:all": "concurrently \"npm run build:packages*\"",
-    "build:packages*": "for package in $(ls packages); do echo \"Building package: $package\"; (cd packages/$package && npm run build || echo \"Build failed for $package\") ; done",
-    "lint": "npm run lint:packages",
-    "lint:packages": "for package in $(ls packages); do echo \"Linting package: $package\"; (cd packages/$package && npm run lint || echo \"Lint failed for $package\") ; done",
-    "test": "npm run test:packages",
-    "test:packages": "for package in $(ls packages); do echo \"Testing package: $package\"; (cd packages/$package && npm run test || echo \"Test failed for $package\") ; done",
-    "clean": "for package in $(ls packages); do (cd packages/$package && rm -rf dist node_modules tsconfig.tsbuildinfo 2>/dev/null); done && rm -rf node_modules package-lock.json .lerna-cache",
-    "dev": "npm run dev:all",
-    "dev:all": "concurrently \"npm run dev:packages*\" -n \"packages*\" -c \"green,yellow,blue,red,cyan,magenta\""
+    "build": "pnpm -r run build",
+    "test": "pnpm -r run test",
+    "lint": "pnpm -r run lint",
+    "typecheck": "pnpm -r run typecheck",
+    "clean": "pnpm -r exec rm -rf dist tsconfig.tsbuildinfo",
+    "dev": "pnpm -r --parallel run dev"
   },
   "engines": {
     "node": ">=18.0.0",
