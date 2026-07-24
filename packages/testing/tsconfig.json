@@ -1,0 +1,75 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "node",
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmitOnError": true,
+    "strict": true,
+    "noImplicitAny": true,
+    "noImplicitThis": true,
+    "noImplicitReturns": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "allowUnusedLabels": false,
+    "allowUnreachableCode": false,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedSideEffects": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "allowLinkingToFilesWithDotFiles": false,
+    "allowJsDocInNuxtDeclarations": false,
+    "allowArbitraryExtensionsInExtendedDiagnostics": false,
+    "noUncheckedSideEffectsInIndexSignatures": true,
+    "noInferOptionalOverExpressions": false,
+    "verbatimModuleSyntax": true,
+    "noEmitHelpers": false,
+    "inlineSources": false,
+    "sourceMap": true,
+    "declaration": true,
+    "declarationMap": true,
+    "declarationDir": "./dist",
+    "emitDeclarationOnly": true,
+    "stripInternal": false,
+    "importHelpers": false,
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "reactNamespace": "React",
+    "resolveJsonModule": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "types": [
+      "node",
+      "jest"
+    ],
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "tsBuildInfoFile": "./node_modules/.cache/.ts-build-info"
+  },
+  "include": [
+    "src/**/*",
+    "!**/*.test.ts",
+    "!**/*spec.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "**/*.node.ts",
+    "**/*.e2e.ts",
+    "**/*.{spec,test}.ts",
+    "**/__mocks__/*",
+    "**/__tests__/*"
+  ],
+  "typeAcquisition": {
+    "include": [],
+    "exclude": []
+  },
+  "references": [
+    {
+      "path": "."
+    }
+  ]
+}
