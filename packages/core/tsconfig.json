@@ -1,7 +1,8 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "ESNext",
+    "module": "CommonJS",
+    "ignoreDeprecations": "5.0",
     "moduleResolution": "node",
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
@@ -15,61 +16,19 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
-    "allowUnusedLabels": false,
-    "allowUnreachableCode": false,
-    "exactOptionalPropertyTypes": true,
-    "noUncheckedSideEffects": true,
-    "noPropertyAccessFromIndexSignature": true,
-    "allowLinkingToFilesWithDotFiles": false,
-    "allowJsDocInNuxtDeclarations": false,
-    "allowArbitraryExtensionsInExtendedDiagnostics": false,
-    "noUncheckedSideEffectsInIndexSignatures": true,
-    "noInferOptionalOverExpressions": false,
-    "verbatimModuleSyntax": true,
-    "noEmitHelpers": false,
-    "inlineSources": false,
     "sourceMap": true,
     "declaration": true,
     "declarationMap": true,
     "declarationDir": "./dist",
-    "emitDeclarationOnly": true,
-    "stripInternal": false,
-    "importHelpers": false,
+    "outDir": "./dist",
+    "rootDir": "./src",
     "esModuleInterop": true,
     "isolatedModules": true,
-    "jsx": "preserve",
-    "reactNamespace": "React",
     "resolveJsonModule": true,
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
-    "types": [
-      "node",
-      "jest"
-    ],
-    "outDir": "./dist",
-    "rootDir": "./src",
-    "tsBuildInfoFile": "./node_modules/.cache/.ts-build-info"
+    "types": ["node", "jest"]
   },
-  "include": [
-    "src/**/*",
-    "!**/*.test.ts",
-    "!**/*spec.ts"
-  ],
-  "exclude": [
-    "node_modules",
-    "**/*.node.ts",
-    "**/*.e2e.ts",
-    "**/*.{spec,test}.ts",
-    "**/__mocks__/*",
-    "**/__tests__/*"
-  ],
-  "typeAcquisition": {
-    "include": [],
-    "exclude": []
-  },
-  "references": [
-    {
-      "path": "."
-    }
-  ]
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts"]
 }
