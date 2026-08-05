@@ -1,0 +1,24 @@
+# AI Air Drawing System - pinned runtime dependencies
+# Requires Python 3.10+ (developed and tested on Python 3.12)
+
+numpy==2.5.1
+opencv-python==5.0.0
+mediapipe==1.0.0
+pytesseract==0.3.13
+
+# Export backends
+svgwrite==1.4.3
+reportlab==5.0.0
+matplotlib==3.11.1
+
+# Optional: handwritten-formula transcription.
+# pix2tex is heavy (pulls in PyTorch); sympy can verify/expand converted
+# formulas. Install only if you need them:
+# pix2tex==0.1.2
+# sympy==1.13.3
+
+# NOTE: pytesseract also requires the Tesseract OCR binary on your system:
+#   - Windows: https://github.com/UB-Mannheim/tesseract/wiki
+#   - macOS:   brew install tesseract
+#   - Linux:   sudo apt install tesseract-ocr
+# Without it the app still runs (gestures, drawing, export) but OCR is skipped.

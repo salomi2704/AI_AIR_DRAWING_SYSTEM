@@ -6,3 +6,14 @@ coverage/
 .env
 .env.local
 *.tsbuildinfo
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.venv/
+venv/
+build/
+.idea/
+.vscode/
+models/
+exports/
