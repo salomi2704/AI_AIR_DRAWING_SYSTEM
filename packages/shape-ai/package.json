@@ -1,0 +1,28 @@
+{
+  "name": "@ai-air-drawing/shape-ai",
+  "version": "1.0.0",
+  "description": "Shape recognition AI for AI Air Drawing",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "lint": "eslint src --ext .ts",
+    "test": "jest --coverage",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ai-air-drawing/core": "file:../core",
+    "@ai-air-drawing/air-stroke": "file:../air-stroke"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/jest": "^29.5.0",
+    "eslint": "^8.50.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.0",
+    "typescript": "^5.3.0"
+  },
+  "license": "MIT"
+}
