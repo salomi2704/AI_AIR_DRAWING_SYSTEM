@@ -85,6 +85,7 @@ class GestureInterpreter:
         erase_radius: float = config.ERASE_RADIUS,
         smoother: Optional[CursorSmoother] = None,
         hand_index: Optional[int] = None,
+        pinch_confirm_frames: int = config.PINCH_CONFIRM_FRAMES,
     ) -> None:
         self._canvas = canvas
         self._ui = ui
@@ -92,9 +93,11 @@ class GestureInterpreter:
         self._erase_interval = erase_interval
         self._erase_radius = erase_radius
         self._hand_index = hand_index
+        self._pinch_confirm_frames = max(1, pinch_confirm_frames)
         self._smoother = smoother or CursorSmoother()
 
         self._pinch_frames = 0
+        self._pinch_confirm = 0
         self._pinch_button: Optional[object] = None
         self._drawing = False
         self._erasing = False
@@ -139,6 +142,7 @@ class GestureInterpreter:
         """Two-fist erase: end any stroke and rub out points at the eraser."""
         self._end_active_stroke()
         self._pinch_frames = 0
+        self._pinch_confirm = 0
         self._pinch_button = None
         self._ui.clear_hover()
         self._erasing = True
@@ -178,10 +182,15 @@ class GestureInterpreter:
 
         tap_button: Optional[object] = None
         if primary.gesture == Gesture.PINCH:
-            # A single hand may draw; with a second hand visible a pinch is
-            # only ever a toolbar tap, so no stroke is ever started.
-            self._handle_pinch(point, ui_point, allow_draw=(mode == "single"))
+            # Debounce: a pinch must persist for a few frames before it can
+            # draw or tap, so a one-frame flinch never leaves a dot or clicks.
+            self._pinch_confirm += 1
+            if self._pinch_confirm >= self._pinch_confirm_frames:
+                # A single hand may draw; with a second hand visible a pinch is
+                # only ever a toolbar tap, so no stroke is ever started.
+                self._handle_pinch(point, ui_point, allow_draw=(mode == "single"))
         else:
+            self._pinch_confirm = 0
             tap_button = self._handle_release()
 
         gesture = Gesture.PINCH if self._pinch_frames > 0 else Gesture.OPEN_PALM
@@ -231,6 +240,7 @@ class GestureInterpreter:
         self._end_active_stroke()
         self._ui.clear_hover()
         self._pinch_frames = 0
+        self._pinch_confirm = 0
         self._pinch_button = None
         self._erasing = False
         self._smoother.reset()

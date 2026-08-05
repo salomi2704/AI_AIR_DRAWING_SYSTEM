@@ -55,6 +55,16 @@ ERASE_HAND_INDEX: int = 1  # which hand (0=first, 1=second) drives the eraser
 CURSOR_SMOOTHING: float = 0.6  # EMA alpha for cursor movement
 CURSOR_SPEED_GAIN: float = 8.0  # extra responsiveness while the hand moves
 
+# Temporal landmark smoothing (One-Euro filter, applied before classification).
+LANDMARK_SMOOTHING_ENABLED: bool = True
+SMOOTHING_MIN_CUTOFF: float = 2.0  # Hz, jitter below this is suppressed
+SMOOTHING_BETA: float = 0.05  # Hz per normalized-unit/s of landmark speed
+SMOOTHING_D_CUTOFF: float = 1.0  # Hz, cutoff for the derivative filter
+
+# Pinch robustness.
+PINCH_CONFIDENCE_ADAPTATION: float = 0.3  # 0=ignore score, 1=threshold driven by it
+PINCH_CONFIRM_FRAMES: int = 2  # frames a pinch must persist before drawing starts
+
 # ---------------------------------------------------------------------------
 # UI / toolbar
 # ---------------------------------------------------------------------------

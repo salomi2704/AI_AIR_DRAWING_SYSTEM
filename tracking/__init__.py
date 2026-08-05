@@ -16,6 +16,7 @@ from tracking.hand_tracker import (
     ensure_model_downloaded,
 )
 from tracking.gestures import Gesture, GestureClassifier, GestureState
+from tracking.smoothing import LandmarkFilter
 
 __all__ = [
     "FINGER_TIP_PIP",
@@ -29,4 +30,5 @@ __all__ = [
     "Gesture",
     "GestureClassifier",
     "GestureState",
+    "LandmarkFilter",
 ]

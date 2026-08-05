@@ -44,6 +44,15 @@ class GestureClassifier:
     ``pinch_ratio`` and only lets it go once the thumb/index gap grows beyond
     ``pinch_exit_ratio``.  This stops the hand from flickering between hover
     and draw while the fingers hover right around the boundary.
+
+    Two adaptive mechanisms reduce false positives:
+
+    * the pinch gap and the palm size are both noisy, so the palm reference is
+      an exponentially weighted average (``palm_alpha``) instead of the raw
+      per-frame value;
+    * when MediaPipe is unsure about the hand (low ``hand.score``) the pinch
+      threshold tightens, so an ambiguous hand must produce a clearly closed
+      pinch before it starts drawing.
     """
 
     def __init__(
@@ -51,11 +60,26 @@ class GestureClassifier:
         pinch_ratio: float = config.PINCH_RATIO,
         pinch_exit_ratio: float = config.PINCH_EXIT_RATIO,
         extension_factor: float = 1.05,
+        confidence_adaptation: float = config.PINCH_CONFIDENCE_ADAPTATION,
+        palm_alpha: float = 0.2,
     ) -> None:
         self.pinch_ratio = pinch_ratio
         self.pinch_exit_ratio = pinch_exit_ratio
         self.extension_factor = extension_factor
+        self.confidence_adaptation = max(0.0, min(1.0, confidence_adaptation))
+        self.palm_alpha = palm_alpha
         self._pinching = False
+        self._palm_ema: float | None = None
+
+    def reset(self) -> None:
+        """Forget the hysteresis latch and the palm estimate (hand lost)."""
+        self._pinching = False
+        self._palm_ema = None
+
+    def _confidence_factor(self, score: float) -> float:
+        """Threshold scale factor: 1.0 at full confidence, <1.0 when unsure."""
+        score = max(0.0, min(1.0, score))
+        return (1.0 - self.confidence_adaptation) + self.confidence_adaptation * score
 
     def _finger_extended(self, hand: Hand, tip_idx: int, pip_idx: int) -> bool:
         """A finger is extended when its tip is clearly farther from the wrist
@@ -85,9 +109,17 @@ class GestureClassifier:
         palm_size = max(
             _distance(hand.landmark(WRIST), hand.middle_mcp), 1e-6
         )
-        pinch_distance = _distance(thumb_tip, index_tip) / palm_size
+        if self._palm_ema is None:
+            self._palm_ema = palm_size
+        else:
+            self._palm_ema = (
+                self.palm_alpha * palm_size + (1.0 - self.palm_alpha) * self._palm_ema
+            )
+        pinch_distance = _distance(thumb_tip, index_tip) / self._palm_ema
 
+        factor = self._confidence_factor(hand.score)
         threshold = self.pinch_exit_ratio if self._pinching else self.pinch_ratio
+        threshold *= factor
         pinching = pinch_distance < threshold
 
         if not any(fingers):  # all four fingers curled => erase mode

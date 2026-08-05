@@ -22,6 +22,7 @@ class GestureInterpreterTest(unittest.TestCase):
             self.ui,
             lost_frames_tolerance=3,
             erase_interval=0.0,
+            pinch_confirm_frames=1,
         )
 
     def test_no_hand_yields_no_cursor(self) -> None:
@@ -59,14 +60,18 @@ class GestureInterpreterTest(unittest.TestCase):
     def test_pinch_over_button_is_tap_and_never_draws(self) -> None:
         button = FakeButton("color:#E53935", "color", label="red")
         ui = make_ui(button)
-        interp = GestureInterpreter(self.canvas, ui, lost_frames_tolerance=3)
+        interp = GestureInterpreter(
+            self.canvas, ui, lost_frames_tolerance=3, pinch_confirm_frames=1
+        )
         interp.update([state(Gesture.PINCH)], 100, 100)
         self.assertFalse(self.canvas.active)
         update = interp.update([state(Gesture.OPEN_PALM)], 100, 100)
         self.assertIs(update.tap_button, button)
 
     def test_second_hand_never_draws_in_hover_mode(self) -> None:
-        interp = GestureInterpreter(self.canvas, self.ui, lost_frames_tolerance=3)
+        interp = GestureInterpreter(
+            self.canvas, self.ui, lost_frames_tolerance=3, pinch_confirm_frames=1
+        )
         interp.update(
             [state(Gesture.PINCH, (0.3, 0.3)), state(Gesture.OPEN_PALM, (0.7, 0.7))],
             100,
@@ -77,7 +82,9 @@ class GestureInterpreterTest(unittest.TestCase):
     def test_hover_mode_pinch_over_button_taps(self) -> None:
         button = FakeButton("brush:22", "brush", label="22")
         ui = make_ui(button)
-        interp = GestureInterpreter(self.canvas, ui, lost_frames_tolerance=3)
+        interp = GestureInterpreter(
+            self.canvas, ui, lost_frames_tolerance=3, pinch_confirm_frames=1
+        )
         interp.update(
             [state(Gesture.PINCH), state(Gesture.OPEN_PALM)], 100, 100
         )
@@ -112,6 +119,39 @@ class GestureInterpreterTest(unittest.TestCase):
         self.assertEqual(self.interp.update(
             [state(Gesture.FIST), state(Gesture.FIST)], 100, 100
         ).status, "Erased 3 points")
+
+
+class GestureInterpreterDebounceTest(unittest.TestCase):
+    """A pinch must persist for a few frames before it draws or taps."""
+
+    def test_pinch_must_persist_before_drawing(self) -> None:
+        canvas = FakeCanvas()
+        interp = GestureInterpreter(canvas, make_ui(), pinch_confirm_frames=3)
+        interp.update([state(Gesture.PINCH)], 100, 100)
+        self.assertFalse(canvas.active)
+        interp.update([state(Gesture.PINCH)], 100, 100)
+        self.assertFalse(canvas.active)
+        interp.update([state(Gesture.PINCH)], 100, 100)
+        self.assertTrue(canvas.active)
+        self.assertEqual(canvas.stroke_start, (50, 50))
+
+    def test_one_frame_pinch_is_ignored_not_tapped(self) -> None:
+        canvas = FakeCanvas()
+        interp = GestureInterpreter(canvas, make_ui(), pinch_confirm_frames=3)
+        interp.update([state(Gesture.PINCH)], 100, 100)
+        update = interp.update([state(Gesture.OPEN_PALM)], 100, 100)
+        self.assertFalse(canvas.active)
+        self.assertIsNone(update.tap_button)
+
+    def test_confirm_counter_resets_on_release(self) -> None:
+        canvas = FakeCanvas()
+        interp = GestureInterpreter(canvas, make_ui(), pinch_confirm_frames=2)
+        interp.update([state(Gesture.PINCH)], 100, 100)
+        self.assertFalse(canvas.active)
+        interp.update([state(Gesture.OPEN_PALM)], 100, 100)
+        interp.update([state(Gesture.PINCH)], 100, 100)
+        interp.update([state(Gesture.PINCH)], 100, 100)
+        self.assertTrue(canvas.active)
 
 
 class GestureInterpreterSmootherInjectionTest(unittest.TestCase):

@@ -39,7 +39,11 @@ from core import (
 )
 from export import ExportBundle, ExportError, export_all
 from recognition import FormulaDetector, OCRRecognizer, ShapeRecognizer
-from tracking import GestureClassifier, HandTracker
+from tracking import (
+    GestureClassifier,
+    HandTracker,
+    LandmarkFilter,
+)
 from ui import Toolbar, UIRenderer
 
 WINDOW_NAME = "AI Air Drawing"
@@ -98,6 +102,10 @@ class AirDrawingApp:
         self.hud = UIRenderer(self.toolbar)
         self.cleaner = SketchCleaner()
         self.interpreter = GestureInterpreter(self.canvas, self.toolbar)
+        self._landmark_filter = (
+            LandmarkFilter() if config.LANDMARK_SMOOTHING_ENABLED else None
+        )
+        self._last_frame_at: Optional[float] = None
 
         self.ocr = None
         self.shapes = None
@@ -160,8 +168,10 @@ class AirDrawingApp:
                         fx=config.TRACKING_SCALE,
                         fy=config.TRACKING_SCALE,
                     )
-                hands = self.tracker.process(track_frame)
+                hands = self._smooth_hands(self.tracker.process(track_frame))
                 self._hand_seen = bool(hands)
+                if not hands:
+                    self.classifier.reset()
 
                 states = [self.classifier.classify(h) for h in hands]
                 update = self.interpreter.update(
@@ -260,6 +270,27 @@ class AirDrawingApp:
             return
         first = next(iter(paths.values()))
         self._flash_status(f"Exported to {first.parent}")
+
+    # ------------------------------------------------------------------
+    # Tracking helpers
+    # ------------------------------------------------------------------
+    def _smooth_hands(self, hands: list) -> list:
+        """Apply One-Euro landmark smoothing and track frame timing.
+
+        With no hands visible the filter and timing state are reset so a hand
+        that reappears starts with a clean history.
+        """
+        if not hands:
+            if self._landmark_filter is not None:
+                self._landmark_filter.reset()
+            self._last_frame_at = None
+            return hands
+        now = time.monotonic()
+        dt = now - self._last_frame_at if self._last_frame_at is not None else None
+        self._last_frame_at = now
+        if self._landmark_filter is None:
+            return hands
+        return [self._landmark_filter.filter_hand(h, dt=dt) for h in hands]
 
     # ------------------------------------------------------------------
     # Rendering
