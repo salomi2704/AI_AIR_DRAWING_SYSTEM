@@ -2,23 +2,26 @@
 
 Wires the whole pipeline together::
 
-    tracking -> canvas -> UI -> recognition -> ai_assist -> export
+    tracking -> gesture interpreter -> canvas -> UI -> recognition -> export
+
+The heavy lifting lives in ``core/`` (the gesture state machine, cursor
+smoothing, frame pacing) and the feature packages; this module only owns the
+camera loop, recognition/export triggers, keyboard shortcuts and rendering
+composition.
 
 Run with::
 
     python app.py            # webcam mode (gesture controlled)
     python app.py --help     # options
 
-Gestures: pinch = draw / tap toolbar, fist = erase, open palm = hover UI.
+Gestures: pinch = draw / tap toolbar, two fists = erase, open palm = hover UI.
 See GESTURES.md for the full mapping and README.md for setup.
 """
 
 from __future__ import annotations
 
 import argparse
-import math
 import time
-from typing import Optional
 
 import cv2
 import numpy as np
@@ -26,14 +29,20 @@ import numpy as np
 import config
 from ai_assist import LatexConverter, SketchCleaner
 from canvas import VirtualCanvas
+from core import (
+    FPSMeter,
+    FramePacer,
+    GestureInterpreter,
+    SceneUpdate,
+    apply_toolbar_action,
+    resolve_mode,  # re-exported for backward compatibility
+)
 from export import ExportBundle, ExportError, export_all
 from recognition import FormulaDetector, OCRRecognizer, ShapeRecognizer
-from tracking import Gesture, GestureClassifier, HandTracker
+from tracking import GestureClassifier, HandTracker
 from ui import Toolbar, UIRenderer
-from ui.toolbar import Button
 
 WINDOW_NAME = "AI Air Drawing"
-LOST_FRAMES_TOLERANCE = 3  # consecutive frames without a hand before reset
 STATUS_DURATION = 2.5  # seconds the status banner stays visible
 
 
@@ -62,33 +71,6 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def resolve_mode(
-    states: list,
-) -> tuple[str, object | None, object | None]:
-    """Decide the interaction mode from the visible hand poses.
-
-    Returns ``(mode, primary, eraser)`` where ``primary`` drives the cursor
-    and ``eraser`` (erase mode only) drives the erase location.
-
-    Modes:
-
-    * ``"none"``   - no hand in view.
-    * ``"erase"``  - two or more hands, every one a fist; the configured hand
-      (``config.ERASE_HAND_INDEX``) is the eraser.
-    * ``"single"`` - exactly one hand in view; it may draw / tap / hover.
-    * ``"hover"``  - more than one hand but not all fists; UI hover only, so
-      a stray second hand can never cause a stroke or an accidental erase.
-    """
-    if not states:
-        return "none", None, None
-    if len(states) >= 2 and all(s.gesture == Gesture.FIST for s in states):
-        eraser = states[config.ERASE_HAND_INDEX if config.ERASE_HAND_INDEX < len(states) else 1]
-        return "erase", states[0], eraser
-    if len(states) == 1:
-        return "single", states[0], None
-    return "hover", states[0], None
-
-
 class AirDrawingApp:
     """The main application: camera loop, gesture dispatch and export."""
 
@@ -115,6 +97,7 @@ class AirDrawingApp:
         self.toolbar = Toolbar(self._frame_width, self._frame_height)
         self.hud = UIRenderer(self.toolbar)
         self.cleaner = SketchCleaner()
+        self.interpreter = GestureInterpreter(self.canvas, self.toolbar)
 
         self.ocr = None
         self.shapes = None
@@ -126,19 +109,12 @@ class AirDrawingApp:
             self.formulas = FormulaDetector()
             self.latex = LatexConverter()
 
-        # Gesture state machine
-        self._cursor_smoothed: Optional[tuple[float, float]] = None
-        self._prev_cursor: Optional[tuple[float, float]] = None
-        self._pinch_frames = 0
-        self._pinch_button: Optional[Button] = None
-        self._drawing = False
-        self._erasing = False
-        self._last_erase_at = 0.0
-        self._lost_frames = 0
         self._hand_seen = False
         self._status_text = ""
         self._status_until = 0.0
         self._last_recognition: dict = {}
+        self._fps = FPSMeter()
+        self._pacer = FramePacer()
 
     # ------------------------------------------------------------------
     # Setup
@@ -167,8 +143,6 @@ class AirDrawingApp:
     # ------------------------------------------------------------------
     def run(self) -> None:
         """Run the interactive camera loop until the user quits."""
-        last_time = time.monotonic()
-        frame_interval = 1.0 / config.FPS_TARGET
         try:
             while True:
                 frame_start = time.monotonic()
@@ -188,22 +162,25 @@ class AirDrawingApp:
                     )
                 hands = self.tracker.process(track_frame)
                 self._hand_seen = bool(hands)
-                self._handle_gesture(hands, self._frame_width, self._frame_height)
 
-                now = time.monotonic()
-                fps = 1.0 / max(now - last_time, 1e-6)
-                last_time = now
+                states = [self.classifier.classify(h) for h in hands]
+                update = self.interpreter.update(
+                    states, self._frame_width, self._frame_height
+                )
 
-                frame = self._draw_scene(frame, fps)
+                if update.tap_button is not None:
+                    self._dispatch_button(update.tap_button)
+                if update.status is not None and time.monotonic() >= self._status_until:
+                    self._flash_status(update.status)
+
+                fps = self._fps.tick()
+                frame = self._draw_scene(frame, update, fps)
                 cv2.imshow(WINDOW_NAME, frame)
                 if not self._handle_keys(cv2.waitKey(1) & 0xFF):
                     break
 
                 # Throttle to FPS_TARGET so the loop does not peg the CPU.
-                elapsed = time.monotonic() - frame_start
-                sleep = frame_interval - elapsed
-                if sleep > 0:
-                    time.sleep(sleep)
+                self._pacer.wait(frame_start)
         finally:
             self.close()
 
@@ -215,155 +192,19 @@ class AirDrawingApp:
         print("[app] closed")
 
     # ------------------------------------------------------------------
-    # Gesture dispatch
+    # Toolbar dispatch
     # ------------------------------------------------------------------
-    def _handle_gesture(
-        self, hands: list, frame_width: int, frame_height: int
-    ) -> None:
-        """Translate the visible hand poses into drawing / UI / erase actions.
-
-        Rules: a **single** hand can draw (pinch) and drive the toolbar; a
-        stray second hand never draws; erasing requires **two fists** at once
-        (the configured hand drives the eraser).
-        """
-        states = [self.classifier.classify(h) for h in hands]
-        mode, primary, eraser = resolve_mode(states)
-
-        if mode == "none":
-            # Tolerate brief tracking losses so a flicker does not end a stroke.
-            self._lost_frames += 1
-            if self._lost_frames >= LOST_FRAMES_TOLERANCE:
-                self._end_active_stroke()
-                self.toolbar.clear_hover()
-                self._pinch_frames = 0
-                self._pinch_button = None
-                self._erasing = False
-                self._cursor_smoothed = None
-                self._prev_cursor = None
+    def _dispatch_button(self, button: object) -> None:
+        """Apply a toolbar button's action; I/O actions run here in the app."""
+        status = apply_toolbar_action(button, self.canvas, self.toolbar)
+        if status is not None:
+            self._flash_status(status)
             return
-        self._lost_frames = 0
-
-        if mode == "erase":
-            self._end_active_stroke()
-            self._pinch_frames = 0
-            self._pinch_button = None
-            self.toolbar.clear_hover()
-            self._erasing = True
-            self._cursor_smoothed = None
-            self._prev_cursor = None
-            self._cursor_smoothed = self._smooth_cursor(eraser.cursor)
-            canvas_point = self.canvas.map_normalized(*self._cursor_smoothed)
-            now = time.monotonic()
-            if now - self._last_erase_at >= config.ERASE_INTERVAL:
-                self._last_erase_at = now
-                erased = self.canvas.erase_at(canvas_point)
-                if erased and not self._status_text:
-                    self._flash_status(f"Erased {erased} points")
-            return
-
-        self._erasing = False
-        self._cursor_smoothed = self._smooth_cursor(primary.cursor)
-        canvas_point = self.canvas.map_normalized(*self._cursor_smoothed)
-        ui_point = self._to_ui_point(self._cursor_smoothed)
-        self.toolbar.set_hover(*ui_point)
-
-        if primary.gesture == Gesture.PINCH:
-            # A single hand may draw; with a second hand visible a pinch is
-            # only ever a toolbar tap, so no stroke is ever started.
-            self._handle_pinch(canvas_point, ui_point, allow_draw=(mode == "single"))
-        else:
-            self._handle_release()
-
-    def _smooth_cursor(self, cursor: tuple[float, float]) -> tuple[float, float]:
-        """Exponential moving average, more responsive while the hand moves.
-
-        The alpha grows with fingertip speed so the cursor tracks fast
-        movements (e.g. reaching for a toolbar button) almost one-to-one and
-        only settles while the hand is (nearly) still.
-        """
-        if self._cursor_smoothed is None:
-            self._prev_cursor = cursor
-            return cursor
-        prev = self._prev_cursor if self._prev_cursor is not None else cursor
-        speed = math.dist(cursor, prev)
-        alpha = min(1.0, config.CURSOR_SMOOTHING + speed * config.CURSOR_SPEED_GAIN)
-        self._prev_cursor = cursor
-        return (
-            alpha * cursor[0] + (1 - alpha) * self._cursor_smoothed[0],
-            alpha * cursor[1] + (1 - alpha) * self._cursor_smoothed[1],
-        )
-
-    def _handle_pinch(
-        self,
-        canvas_point: tuple[int, int],
-        ui_point: tuple[int, int],
-        allow_draw: bool = True,
-    ) -> None:
-        """A pinch draws a stroke, or is a tap when short and over the UI."""
-        self._pinch_frames += 1
-        if self._pinch_frames == 1:
-            self._pinch_button = self.toolbar.hit_test(*ui_point)
-            if allow_draw and self._pinch_button is None:
-                self.canvas.begin_stroke(
-                    canvas_point,
-                    color_hex=self.toolbar.active_color,
-                    thickness=self.toolbar.active_brush,
-                )
-                self._drawing = True
-        elif self._drawing:
-            self.canvas.extend_stroke(canvas_point)
-
-    def _handle_release(self) -> None:
-        """End the current stroke and fire a tap for a pinch over a button.
-
-        A pinch that started on a toolbar button is a click whenever it is
-        released (no timing trick needed), because it never draws anything.
-        """
-        was_pinch = self._pinch_frames > 0
-        self._pinch_frames = 0
-        self._erasing = False
-        self._end_active_stroke()
-        if was_pinch and self._pinch_button is not None:
-            self._dispatch_button(self._pinch_button.id)
-        self._pinch_button = None
-
-    def _end_active_stroke(self) -> None:
-        if self._drawing:
-            self.canvas.end_stroke()
-            self._drawing = False
-
-    def _to_ui_point(self, cursor: tuple[float, float]) -> tuple[int, int]:
-        return int(cursor[0] * self._frame_width), int(
-            cursor[1] * self._frame_height
-        )
-
-    def _last_ui_point(self) -> tuple[int, int]:
-        if self._cursor_smoothed is None:
-            return 0, 0
-        return self._to_ui_point(self._cursor_smoothed)
-
-    def _dispatch_button(self, button_id: str) -> None:
-        """Apply a toolbar button's action."""
-        if button_id == "undo":
-            self.canvas.undo() and self._flash_status("Undo")
-        elif button_id == "redo":
-            self.canvas.redo() and self._flash_status("Redo")
-        elif button_id == "clear":
-            self.canvas.clear_all()
-            self._flash_status("Canvas cleared")
-        elif button_id == "export":
+        button_id = getattr(button, "id", "")
+        if button_id == "export":
             self._export()
         elif button_id == "recognize":
             self._recognize()
-        else:
-            self._flash_status("Selected " + self._button_label(button_id))
-
-    def _button_label(self, button_id: str) -> str:
-        if button_id.startswith("color:"):
-            return button_id.split(":", 1)[1]
-        if button_id.startswith("brush:"):
-            return f"brush {button_id.split(':', 1)[1]}"
-        return button_id
 
     # ------------------------------------------------------------------
     # Recognition & export
@@ -423,7 +264,9 @@ class AirDrawingApp:
     # ------------------------------------------------------------------
     # Rendering
     # ------------------------------------------------------------------
-    def _draw_scene(self, frame: np.ndarray, fps: float) -> np.ndarray:
+    def _draw_scene(
+        self, frame: np.ndarray, update: SceneUpdate, fps: float
+    ) -> np.ndarray:
         """Overlay the canvas strokes, toolbar, cursor and status on the feed."""
         canvas_image = self.canvas.render_scaled(
             frame.shape[1], frame.shape[0], include_active=True
@@ -438,16 +281,12 @@ class AirDrawingApp:
         self.hud.draw_toolbar(frame)
         self.hud.draw_tracking_badge(frame, self._hand_seen)
 
-        if self._cursor_smoothed is not None:
-            gesture = self._current_gesture()
-            position = self._last_ui_point()
-            radius = None
-            if gesture == Gesture.FIST:
-                radius = int(
-                    config.ERASE_RADIUS
-                    * math.hypot(self._frame_width, self._frame_height)
-                )
-            self.hud.draw_cursor(frame, position, gesture, radius)
+        if update.cursor is not None:
+            position = (
+                int(update.cursor[0] * self._frame_width),
+                int(update.cursor[1] * self._frame_height),
+            )
+            self.hud.draw_cursor(frame, position, update.gesture, update.erase_radius)
 
         fps_text = f"{fps:5.1f} fps"
         cv2.putText(
@@ -463,13 +302,6 @@ class AirDrawingApp:
         if time.monotonic() < self._status_until:
             self.hud.draw_status(frame, self._status_text)
         return frame
-
-    def _current_gesture(self) -> Gesture:
-        if self._erasing:
-            return Gesture.FIST
-        if self._pinch_frames > 0:
-            return Gesture.PINCH
-        return Gesture.OPEN_PALM
 
     # ------------------------------------------------------------------
     # Keyboard shortcuts

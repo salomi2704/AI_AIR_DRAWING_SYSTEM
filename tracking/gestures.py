@@ -14,10 +14,8 @@ the UI layer, so a pinch can both draw and click the toolbar.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from enum import Enum
-
 import config
+from tracking.gesture_types import Gesture, GestureState
 from tracking.hand_tracker import (
     FINGER_TIP_PIP,
     THUMB_IP,
@@ -26,25 +24,6 @@ from tracking.hand_tracker import (
     Hand,
     Landmark,
 )
-
-
-class Gesture(str, Enum):
-    """The recognised high-level hand poses."""
-
-    NONE = "none"
-    PINCH = "pinch"
-    FIST = "fist"
-    OPEN_PALM = "open_palm"
-
-
-@dataclass(frozen=True)
-class GestureState:
-    """The result of classifying one hand in one frame."""
-
-    gesture: Gesture
-    cursor: tuple[float, float]  # normalised (x, y) of the index fingertip
-    pinch_distance: float = 0.0  # normalised thumb<->index gap
-    extended_fingers: tuple[bool, bool, bool, bool, bool] = (False,) * 5
 
 
 def _distance(a: Landmark, b: Landmark) -> float:
