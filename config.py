@@ -106,9 +106,18 @@ EXPORT_DPI: int = 150
 EXPORT_DIR: Path = PROJECT_ROOT / "exports"
 EXPORT_BACKGROUND: str = "#FFFFFF"
 
+# ---------------------------------------------------------------------------
+# Storage / autosave
+# ---------------------------------------------------------------------------
+AUTOSAVE_ENABLED: bool = True
+AUTOSAVE_INTERVAL: float = 10.0  # seconds between automatic saves
+AUTOSAVE_DIR: Path = PROJECT_ROOT / "sessions"
+AUTOSAVE_PATH: Path = AUTOSAVE_DIR / "airdraw_autosave.json"
+
 # Convenience: make sure derived directories exist.
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+AUTOSAVE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ---------------------------------------------------------------------------

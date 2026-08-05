@@ -39,6 +39,7 @@ from core import (
 )
 from export import ExportBundle, ExportError, export_all
 from recognition import FormulaDetector, OCRRecognizer, ShapeRecognizer
+from storage import AutosaveManager
 from tracking import (
     GestureClassifier,
     HandTracker,
@@ -72,6 +73,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="skip OCR/shape recognition (faster, no tesseract needed)",
     )
+    parser.add_argument(
+        "--recover",
+        action="store_true",
+        help="restore the last autosaved session on startup",
+    )
     return parser
 
 
@@ -101,6 +107,17 @@ class AirDrawingApp:
         self.toolbar = Toolbar(self._frame_width, self._frame_height)
         self.hud = UIRenderer(self.toolbar)
         self.cleaner = SketchCleaner()
+        self.autosave = (
+            AutosaveManager(self.canvas) if config.AUTOSAVE_ENABLED else None
+        )
+        if self.autosave is not None and args.recover:
+            restored = AutosaveManager.load()
+            if restored is not None:
+                self.canvas = restored
+                self.autosave = AutosaveManager(self.canvas)
+                print(f"[app] recovered session from {self.autosave.path}")
+            else:
+                print("[app] --recover requested but no autosave found")
         self.interpreter = GestureInterpreter(self.canvas, self.toolbar)
         self._landmark_filter = (
             LandmarkFilter() if config.LANDMARK_SMOOTHING_ENABLED else None
@@ -182,6 +199,8 @@ class AirDrawingApp:
                     self._dispatch_button(update.tap_button)
                 if update.status is not None and time.monotonic() >= self._status_until:
                     self._flash_status(update.status)
+                if self.autosave is not None:
+                    self.autosave.maybe_save()
 
                 fps = self._fps.tick()
                 frame = self._draw_scene(frame, update, fps)
@@ -195,7 +214,12 @@ class AirDrawingApp:
             self.close()
 
     def close(self) -> None:
-        """Release camera, tracker and windows."""
+        """Release camera, tracker and windows; save the session."""
+        if self.autosave is not None:
+            try:
+                self.autosave.save()
+            except OSError as exc:  # pragma: no cover - disk issues
+                print(f"[app] autosave failed: {exc}")
         self.camera.release()
         self.tracker.close()
         cv2.destroyAllWindows()
