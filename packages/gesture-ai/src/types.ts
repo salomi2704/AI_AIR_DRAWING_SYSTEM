@@ -8,8 +8,14 @@ export interface GestureResult {
   duration: number;
 }
 
+export interface RecognizeOptions {
+  score?: number;
+  rate?: number;
+}
+
 export interface GestureRecognizer {
-  recognize(landmarks: Array<{ x: number; y: number; z: number }>): GestureResult;
+  recognize(landmarks: Array<{ x: number; y: number; z: number }>, options?: RecognizeOptions): GestureResult;
   getHistory(): GestureResult[];
   clearHistory(): void;
+  reset(): void;
 }

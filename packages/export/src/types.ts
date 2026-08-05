@@ -22,3 +22,30 @@ export interface ExportEngine {
   exportDiagram(nodes: Array<{ id: string; label: string; x: number; y: number }>, options: ExportOptions): ExportResult;
   getSupportedFormats(): ExportFormat[];
 }
+
+export interface RecognitionReportShape {
+  kind: string;
+  bbox: [number, number, number, number];
+  fitError?: number;
+  params: Record<string, unknown>;
+}
+
+export interface RecognitionReportTextRegion {
+  text: string;
+  confidence: number;
+  box: [number, number, number, number];
+}
+
+export interface RecognitionReportDiagram {
+  nodes: Array<{ id: string; kind: string; label: string }>;
+  edges: Array<{ source: string; target: string; label: string }>;
+}
+
+export interface RecognitionReport {
+  canvas: { width: number; height: number; strokes: number; points: number };
+  shapes: RecognitionReportShape[];
+  textRegions: RecognitionReportTextRegion[];
+  diagram: RecognitionReportDiagram | null;
+  latex: string[];
+  summary: string;
+}

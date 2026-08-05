@@ -1,5 +1,8 @@
 import { AIAssistant, AssistantMessage, AssistantSuggestion } from './types';
 import { createLogger } from '@ai-air-drawing/core';
+import { Provider } from './providers/base';
+import { RuleProvider, DiagramShapeLike, DiagramTextLike } from './providers/offline';
+import { createProvider } from './providers';
 
 const logger = createLogger({ context: 'AIAssistant' });
 
@@ -128,4 +131,75 @@ export class MemoryAIAssistant implements AIAssistant {
     }
     return `I understand: "${input.substring(0, 50)}". How can I help with that?`;
   }
+}
+
+export const SYSTEM_PROMPT =
+  'You describe hand-drawn diagrams that a vision pipeline has recognized. ' +
+  'Be concise (at most 6 sentences) and focus on structure and meaning, ' +
+  'not on listing every shape.';
+
+export class DiagramSummarizer {
+  readonly provider: Provider;
+
+  constructor(provider?: Provider) {
+    this.provider = provider ?? createProvider();
+  }
+
+  static buildPrompt(
+    shapes: DiagramShapeLike[],
+    textRegions: DiagramTextLike[],
+    latex: string[],
+  ): string {
+    const lines: string[] = [];
+    if (shapes.length > 0) {
+      const entries = shapes.map(
+        (shape) => `${shape.kind ?? 'unknown'}(${shape.label ?? ''})`,
+      );
+      lines.push(`Shapes (type, label): ${entries.join('; ')}`);
+    }
+    if (textRegions.length > 0) {
+      lines.push(`Recognized text: ${textRegions.map((region) => region.text ?? '').join('; ')}`);
+    }
+    if (latex.length > 0) {
+      lines.push(`Formulas: ${latex.join('; ')}`);
+    }
+    if (lines.length === 0) {
+      lines.push('The diagram is empty.');
+    }
+    lines.push('Describe the overall diagram in a few sentences.');
+    return lines.join('\n');
+  }
+
+  async summarize(
+    shapes: DiagramShapeLike[],
+    textRegions: DiagramTextLike[],
+    latex: string[],
+  ): Promise<string> {
+    const offline = RuleProvider.summarizeDiagram(textRegions, shapes, latex);
+    if (this.provider instanceof RuleProvider) {
+      return offline;
+    }
+    try {
+      const result = await this.provider.summarize(
+        SYSTEM_PROMPT,
+        DiagramSummarizer.buildPrompt(shapes, textRegions, latex),
+      );
+      if (!result || !result.trim()) {
+        return offline;
+      }
+      return result.trim();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return `${offline} (LLM unavailable: ${message})`;
+    }
+  }
+}
+
+let defaultSummarizer: DiagramSummarizer | null = null;
+
+export function getSummarizer(): DiagramSummarizer {
+  if (defaultSummarizer === null) {
+    defaultSummarizer = new DiagramSummarizer();
+  }
+  return defaultSummarizer;
 }
