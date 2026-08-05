@@ -11,6 +11,7 @@ from pathlib import Path
 
 import config
 from export.bundle import ExportBundle
+from export.json_exporter import JsonExporter
 from export.pdf_exporter import PdfExporter
 from export.png_exporter import PngExporter
 from export.svg_exporter import SvgExporter
@@ -19,6 +20,7 @@ from export.tex_exporter import TexExporter
 __all__ = [
     "ExportBundle",
     "ExportError",
+    "JsonExporter",
     "PdfExporter",
     "PngExporter",
     "SvgExporter",
@@ -48,15 +50,18 @@ def export_all(
     png_path = output_dir / f"{base_name}.png"
     pdf_path = output_dir / f"{base_name}.pdf"
     tex_path = output_dir / f"{base_name}.tex"
+    json_path = output_dir / f"{base_name}.json"
 
     SvgExporter().export(bundle, svg_path)
     PngExporter().export(bundle, png_path)
     PdfExporter().export(bundle, pdf_path)
     TexExporter().export(bundle, tex_path, image_path=png_path)
+    JsonExporter().export(bundle, json_path)
 
     return {
         "svg": svg_path,
         "png": png_path,
         "pdf": pdf_path,
         "tex": tex_path,
+        "json": json_path,
     }

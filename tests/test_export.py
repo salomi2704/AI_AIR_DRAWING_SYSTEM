@@ -28,7 +28,7 @@ class ExportTest(unittest.TestCase):
     def test_export_all_writes_every_format(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             files = export_all(self.bundle, output_dir=tmp, base_name="test")
-            for fmt in ("svg", "png", "pdf", "tex"):
+            for fmt in ("svg", "png", "pdf", "tex", "json"):
                 self.assertIn(fmt, files)
                 path = Path(files[fmt])
                 self.assertTrue(path.exists())
@@ -63,6 +63,29 @@ class ExportTest(unittest.TestCase):
             content = path.read_text()
             self.assertIn("\\pi r^2", content)
             self.assertIn("Recognised text", content)
+
+    def test_json_report_contains_summary_and_shapes(self) -> None:
+        import json
+
+        from recognition import Shape
+
+        self.bundle.summary = "A quick drawing."
+        self.bundle.shapes = [
+            Shape(
+                kind="triangle",
+                bbox=(10, 10, 50, 40),
+                params={"corners": [(10, 10), (60, 10), (35, 50)]},
+            )
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            files = export_all(self.bundle, output_dir=tmp, base_name="report")
+            data = json.loads(Path(files["json"]).read_text(encoding="utf-8"))
+            self.assertEqual(data["summary"], "A quick drawing.")
+            self.assertEqual(data["shapes"][0]["kind"], "triangle")
+            self.assertEqual(data["shapes"][0]["params"]["corners"][0], [10, 10])
+            self.assertEqual(data["text_regions"][0]["text"], "hello")
+            self.assertEqual(data["canvas"]["width"], 400)
+            self.assertGreater(data["canvas"]["points"], 100)
 
 
 if __name__ == "__main__":

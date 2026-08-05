@@ -1,13 +1,14 @@
 """Contour-based shape and diagram recognition.
 
 Classifies each stroke as a basic shape (``line``, ``circle``, ``rectangle``,
-``arrow``) by fitting primitives and measuring the fit error, then optionally
-assembles recognised boxes/circles and arrows into a flow-chart style
-:class:`Diagram`.
+``diamond``, ``triangle``, ``arrow``) by fitting primitives and measuring the
+fit error, then optionally assembles recognised boxes/circles/diamonds and
+arrows into a flow-chart style :class:`Diagram`.
 
 Fit-based, not deep-learning based: a circle is a stroke whose points all sit
 near a common radius, a rectangle is a hull with four near-right-angle
-corners, and an arrow is a mostly straight stroke ending in a sharp V.
+corners, a diamond is a closed rhombus and a triangle is a closed three-corner
+hull.  Arrows are mostly straight strokes ending in a sharp V.
 """
 
 from __future__ import annotations
@@ -59,6 +60,7 @@ class DiagramEdge:
     source: str
     target: str
     shape: Shape
+    label: str = ""
 
 
 @dataclass
@@ -72,7 +74,7 @@ class Diagram:
         return {
             "nodes": [{"id": n.id, "kind": n.shape.kind, "label": n.label} for n in self.nodes],
             "edges": [
-                {"source": e.source, "target": e.target} for e in self.edges
+                {"source": e.source, "target": e.target, "label": e.label} for e in self.edges
             ],
         }
 
@@ -183,6 +185,97 @@ class ShapeRecognizer:
         )
         return abs(np.degrees(np.arccos(np.clip(cos, -1.0, 1.0))))
 
+    # ------------------------------------------------------------------
+    # Triangle / diamond detection
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _fit_polygon(
+        points: list[Point],
+        n_corners: int,
+        epsilon: float = 0.04,
+    ) -> Optional[list[Point]]:
+        """Convex-hull corners of a stroke, or None if the count differs."""
+        pts = np.asarray(points, dtype=np.int32).reshape(-1, 1, 2)
+        hull = cv2.convexHull(pts)
+        hull = cv2.approxPolyDP(
+            hull, epsilon * cv2.arcLength(hull, True), True
+        ).reshape(-1, 2)
+        if len(hull) != n_corners:
+            return None
+        return [tuple(map(int, c)) for c in hull]
+
+    @staticmethod
+    def _polygon_area(corners: list[Point]) -> float:
+        """Shoelace area of a polygon defined by its corners."""
+        n = len(corners)
+        total = 0.0
+        for i in range(n):
+            x1, y1 = corners[i]
+            x2, y2 = corners[(i + 1) % n]
+            total += x1 * y2 - x2 * y1
+        return abs(total) / 2.0
+
+    @classmethod
+    def _is_closed(cls, points: list[Point], ratio: float = 0.15) -> bool:
+        """True when the stroke starts and ends near the same point.
+
+        Open strokes (arrows, lines, Vs) are never triangles or diamonds.
+        """
+        if len(points) < 2:
+            return False
+        xs = [p[0] for p in points]
+        ys = [p[1] for p in points]
+        diagonal = ((max(xs) - min(xs)) ** 2 + (max(ys) - min(ys)) ** 2) ** 0.5
+        if diagonal < 1e-6:
+            return False
+        first, last = points[0], points[-1]
+        gap = ((first[0] - last[0]) ** 2 + (first[1] - last[1]) ** 2) ** 0.5
+        return gap <= ratio * diagonal
+
+    def _fit_triangle(self, points: list[Point]) -> tuple[Optional[dict], float]:
+        """A closed stroke whose convex hull collapses to three corners."""
+        corners = self._fit_polygon(points, 3)
+        if corners is None or not self._is_closed(points):
+            return None, float("inf")
+        area = self._polygon_area(corners)
+        x, y, w, h = self._bbox(points)
+        if w <= 0 or h <= 0 or area / (w * h) < 0.15:
+            return None, float("inf")
+        return {"corners": corners, "area": float(area)}, 0.0
+
+    def _fit_diamond(self, points: list[Point]) -> tuple[Optional[dict], float]:
+        """A closed rhombus: four corners, equal-ish sides, not near-square."""
+        corners = self._fit_polygon(points, 4)
+        if corners is None or not self._is_closed(points):
+            return None, float("inf")
+        sides = [
+            ((corners[i][0] - corners[(i + 1) % 4][0]) ** 2
+             + (corners[i][1] - corners[(i + 1) % 4][1]) ** 2) ** 0.5
+            for i in range(4)
+        ]
+        if min(sides) < 1e-6 or max(sides) / min(sides) > 2.0:
+            return None, float("inf")
+        angles = []
+        for i in range(4):
+            a = np.asarray(corners[i - 1], float) - np.asarray(corners[i], float)
+            b = np.asarray(corners[(i + 1) % 4], float) - np.asarray(corners[i], float)
+            angles.append(self._angle_between(a, b))
+        if max(abs(angle - 90.0) for angle in angles) < 12.0:
+            return None, float("inf")  # a near-square -> let rectangle handle it
+        center = tuple(int(sum(c[i] for c in corners) / 4) for i in (0, 1))
+        diag = [
+            ((corners[0][0] - corners[2][0]) ** 2
+             + (corners[0][1] - corners[2][1]) ** 2) ** 0.5,
+            ((corners[1][0] - corners[3][0]) ** 2
+             + (corners[1][1] - corners[3][1]) ** 2) ** 0.5,
+        ]
+        return {
+            "corners": corners,
+            "center": center,
+            "diagonals": [float(d) for d in diag],
+            "area": float(self._polygon_area(corners)),
+        }, 0.0
+
     def _arrowhead_end(self, points: list[Point]) -> Optional[bool]:
         """Detect a sharp V at either end of a mostly-straight stroke.
 
@@ -236,6 +329,8 @@ class ShapeRecognizer:
         line, line_dev = self._fit_line(points)
         circle, circle_err = self._fit_circle(points)
         rect, rect_err = self._fit_rectangle(points)
+        diamond, diamond_err = self._fit_diamond(points)
+        triangle, triangle_err = self._fit_triangle(points)
 
         is_line = line is not None and line_dev / max(line["length"], 1e-6) < self.line_tolerance
         is_circle = circle is not None and circle_err < self.circle_tolerance
@@ -265,6 +360,16 @@ class ShapeRecognizer:
                 params=circle,
                 fit_error=circle_err,
             )
+        # Diamond is checked before rectangle: it is a 4-corner polygon that
+        # fails the rectangle's near-right-angle test.
+        if diamond is not None:
+            return Shape(
+                kind="diamond",
+                points=points,
+                bbox=self._bbox(points),
+                params=diamond,
+                fit_error=diamond_err,
+            )
         if is_rect:
             return Shape(
                 kind="rectangle",
@@ -272,6 +377,14 @@ class ShapeRecognizer:
                 bbox=self._bbox(points),
                 params=rect,
                 fit_error=rect_err,
+            )
+        if triangle is not None:
+            return Shape(
+                kind="triangle",
+                points=points,
+                bbox=self._bbox(points),
+                params=triangle,
+                fit_error=triangle_err,
             )
         if is_line:
             return Shape(
@@ -313,7 +426,9 @@ class ShapeRecognizer:
         """Assemble boxes/circles + arrows + text labels into a Diagram."""
         nodes: list[DiagramNode] = []
         node_id = 0
-        node_shapes = [s for s in shapes if s.kind in ("rectangle", "circle")]
+        node_shapes = [
+            s for s in shapes if s.kind in ("rectangle", "circle", "diamond", "triangle")
+        ]
         text_regions = text_regions or []
 
         for shape in node_shapes:
@@ -334,8 +449,34 @@ class ShapeRecognizer:
             source = self._nearest_node(nodes, tail)
             target = self._nearest_node(nodes, head)
             if source is not None and target is not None and source is not target:
-                edges.append(DiagramEdge(source=source.id, target=target.id, shape=arrow))
+                label = self._edge_label(arrow.bbox, text_regions)
+                edges.append(
+                    DiagramEdge(source=source.id, target=target.id, shape=arrow, label=label)
+                )
         return Diagram(nodes=nodes, edges=edges)
+
+    @staticmethod
+    def _edge_label(bbox, text_regions: list[OCRResult]) -> str:
+        """Text placed on or right beside an arrow becomes its label."""
+        bx, by, bw, bh = bbox
+        bx2, by2 = bx + bw, by + bh
+        diagonal = (bw * bw + bh * bh) ** 0.5
+        best = ""
+        best_dist = float("inf")
+        for region in text_regions:
+            rx, ry, rw, rh = region.box
+            cx, cy = rx + rw / 2, ry + rh / 2
+            if bx <= cx <= bx2 and by <= cy <= by2:
+                return region.text
+            dx = max(bx - cx, 0, cx - bx2)
+            dy = max(by - cy, 0, cy - by2)
+            dist = (dx * dx + dy * dy) ** 0.5
+            if dist < best_dist:
+                best_dist = dist
+                best = region.text
+        if best and best_dist <= 0.6 * max(diagonal, 1e-6):
+            return best
+        return ""
 
     @staticmethod
     def _region_inside(region_box, shape_box) -> bool:

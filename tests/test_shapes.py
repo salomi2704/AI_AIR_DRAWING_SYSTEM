@@ -46,6 +46,24 @@ def rectangle_stroke():
     return Stroke(points=pts)
 
 
+def polygon_stroke(corners):
+    pts = []
+    for i in range(len(corners)):
+        (x1, y1), (x2, y2) = corners[i], corners[(i + 1) % len(corners)]
+        for k in range(25):
+            t = k / 25
+            pts.append((int(x1 + (x2 - x1) * t), int(y1 + (y2 - y1) * t)))
+    return Stroke(points=pts)
+
+
+def triangle_stroke():
+    return polygon_stroke([(150, 80), (320, 260), (60, 260)])
+
+
+def diamond_stroke():
+    return polygon_stroke([(200, 60), (340, 160), (200, 260), (60, 160)])
+
+
 def arrow_stroke():
     pts = [(i, 0) for i in range(0, 201, 4)]
     pts += [(200, 0), (190, -22), (190, 22)]
@@ -87,6 +105,31 @@ class ShapeRecognizerTest(unittest.TestCase):
         shape = self.recognizer.recognize_stroke(rectangle_stroke())
         self.assertEqual(shape.kind, "rectangle")
 
+    def test_triangle_is_triangle(self) -> None:
+        shape = self.recognizer.recognize_stroke(triangle_stroke())
+        self.assertEqual(shape.kind, "triangle")
+        self.assertEqual(len(shape.params["corners"]), 3)
+        self.assertGreater(shape.params["area"], 0.0)
+
+    def test_diamond_is_diamond(self) -> None:
+        shape = self.recognizer.recognize_stroke(diamond_stroke())
+        self.assertEqual(shape.kind, "diamond")
+        self.assertEqual(len(shape.params["corners"]), 4)
+        self.assertEqual(len(shape.params["diagonals"]), 2)
+
+    def test_open_v_is_not_a_polygon(self) -> None:
+        pts = []
+        for i in range(40):
+            pts.append((i * 4, 0))
+        for i in range(20):
+            pts.append((160 - i * 6, i * 3))
+        shape = self.recognizer.recognize_stroke(Stroke(points=pts))
+        self.assertNotIn(shape.kind, ("triangle", "diamond"))
+
+    def test_diamond_is_preferred_over_rectangle(self) -> None:
+        shape = self.recognizer.recognize_stroke(diamond_stroke())
+        self.assertEqual(shape.kind, "diamond")
+
     def test_arrow_is_arrow(self) -> None:
         shape = self.recognizer.recognize_stroke(arrow_stroke())
         self.assertEqual(shape.kind, "arrow")
@@ -125,6 +168,22 @@ class DiagramTest(unittest.TestCase):
         text = OCRResult(text="start", confidence=90.0, box=(150, 130, 60, 25))
         diagram = self.recognizer.build_diagram([box], text_regions=[text])
         self.assertEqual(diagram.nodes[0].label, "start")
+
+    def test_edge_label_attached_to_arrow(self) -> None:
+        box1 = self.recognizer.recognize_stroke(rectangle_stroke())
+        box2_shifted = Stroke(
+            points=[(p[0] + 300, p[1]) for p in rectangle_stroke().points]
+        )
+        box2 = self.recognizer.recognize_stroke(box2_shifted)
+        arrow_shifted = Stroke(
+            points=[(p[0] + 200, p[1] + 75) for p in arrow_stroke().points]
+        )
+        arrow = self.recognizer.recognize_stroke(arrow_shifted)
+        text = OCRResult(text="yes", confidence=90.0, box=(280, 60, 40, 30))
+        diagram = self.recognizer.build_diagram(
+            [box1, box2, arrow], text_regions=[text]
+        )
+        self.assertEqual(diagram.edges[0].label, "yes")
 
 
 if __name__ == "__main__":
