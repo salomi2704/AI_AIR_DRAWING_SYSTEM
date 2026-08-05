@@ -1,20 +1,25 @@
 # Gesture Map
 
-The system recognises three primary hand poses. Everything you do is driven
-by these, plus the on-screen toolbar and a few keyboard shortcuts.
+Drawing is a *single-hand* activity and erasing is a *two-hand* activity, so
+a stray second hand can never scribble on your canvas by accident.
 
 ## Hand gestures
 
 | Gesture | Visual | Mode | Action |
 |---|---|---|---|
-| **Open palm** | ✋ all fingers spread | Hover / UI | Cursor (index fingertip) moves; toolbar buttons highlight as you hover over them |
-| **Pinch** | 🤏 thumb + index tip touching | Draw | Move while pinching to draw a stroke with the current colour & brush size |
-| **Pinch (short)** | quick pinch + release over the toolbar | Tap | Activates the hovered toolbar button (colour, brush, undo, ...) |
-| **Fist** | ✊ all four fingers curled | Erase | Rubs out stroke points under the fingertip (hold to keep erasing) |
+| **Open palm (one hand)** | all fingers spread | Hover / UI | Cursor (index fingertip) moves; toolbar buttons highlight as you hover over them |
+| **Pinch (one hand)** | thumb + index tip touching | Draw | Move while pinching to draw a stroke with the current colour & brush size |
+| **Pinch, short (one hand, over a button)** | quick pinch + release over the toolbar | Tap | Activates the hovered toolbar button (colour, brush, undo, ...) |
+| **Two fists (both hands)** | both hands curled | Erase | Rubs out stroke points under the second hand's fingertip (hold to keep erasing) |
 
-> A pinch that lasts fewer than `PINCH_TAP_MAX_FRAMES` frames and starts over
-> a toolbar button is treated as a *tap*; anywhere else it just draws a short
+> A pinch that starts over a toolbar button is a *tap* — it never draws, and
+> it registers whenever you release it. Pinches anywhere else just draw a
 > stroke.
+>
+> A single fist no longer erases — erasing deliberately requires **two hands
+> closed at the same time** (the hand configured by `ERASE_HAND_INDEX` drives
+> the eraser). A second hand that is not a fist only hovers the UI and never
+> draws.
 
 ## Toolbar buttons
 
@@ -51,12 +56,17 @@ All thresholds live in `config.py`:
 
 | Setting | Meaning | Default |
 |---|---|---|
-| `PINCH_RATIO` | pinch distance ÷ palm size below which a pinch is detected | `0.35` |
-| `PINCH_TAP_MAX_FRAMES` | max pinch length (frames) counted as a tap | `6` |
+| `PINCH_RATIO` | pinch distance ÷ palm size below which a pinch starts | `0.35` |
+| `PINCH_EXIT_RATIO` | pinch releases only above this (prevents hover/draw flicker) | `0.49` |
+| `ERASE_INTERVAL` | seconds between consecutive erase passes while holding two fists | `0.10` |
+| `ERASE_HAND_INDEX` | which hand (0 = first, 1 = second) drives the eraser | `1` |
 | `MIN_DETECTION_CONFIDENCE` | MediaPipe hand-detection threshold | `0.7` |
-| `CURSOR_SMOOTHING` | cursor smoothing factor (higher = more responsive) | `0.6` |
+| `CURSOR_SMOOTHING` | cursor smoothing while the hand is still (higher = more responsive) | `0.6` |
+| `CURSOR_SPEED_GAIN` | extra cursor responsiveness while the hand moves fast | `8.0` |
 
 If a pose is misclassified, nudge the relevant value:
 - pinch detected too easily (open hand triggers draw) → lower `PINCH_RATIO`
 - pinch hard to trigger → raise `PINCH_RATIO`
-- fist often read as pinch → lower `PINCH_RATIO` or raise `PINCH_TAP_MAX_FRAMES`
+- hand flickers between hover and draw → widen the gap between `PINCH_RATIO`
+  and `PINCH_EXIT_RATIO`
+- two-fist erase feels wrong-handed → swap `ERASE_HAND_INDEX` between `0` and `1`

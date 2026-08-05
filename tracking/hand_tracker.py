@@ -8,6 +8,7 @@ consumes (see :mod:`tracking.gestures`).
 
 from __future__ import annotations
 
+import time
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -73,13 +74,19 @@ class Landmark:
 
     @classmethod
     def from_mp(cls, landmark: object) -> "Landmark":
-        """Build a :class:`Landmark` from a MediaPipe NormalizedLandmark."""
+        """Build a :class:`Landmark` from a MediaPipe NormalizedLandmark.
+
+        MediaPipe 1.0 leaves ``visibility``/``presence`` as ``None`` for the
+        hand landmarker, so they default to 1.0 here.
+        """
+        visibility = getattr(landmark, "visibility", None)
+        presence = getattr(landmark, "presence", None)
         return cls(
             x=float(landmark.x),
             y=float(landmark.y),
             z=float(landmark.z),
-            visibility=float(landmark.visibility),
-            presence=float(landmark.presence),
+            visibility=1.0 if visibility is None else float(visibility),
+            presence=1.0 if presence is None else float(presence),
         )
 
 
@@ -136,8 +143,10 @@ class HandTracker:
         hands = tracker.process(frame_bgr)
         annotated = tracker.draw_landmarks(frame_bgr, hands)
 
-    Designed to run on every webcam frame; ``process`` returns an empty list
-    when no hands are in view.
+    Runs in ``RunningMode.VIDEO`` so MediaPipe tracks the hand between frames
+    instead of re-detecting it every frame; the first frame of a hand in view
+    pays the full detection cost, later frames only run landmark inference.
+    ``process`` returns an empty list when no hands are in view.
     """
 
     def __init__(
@@ -151,19 +160,27 @@ class HandTracker:
         model = ensure_model_downloaded(model_path)
         options = mp.tasks.vision.HandLandmarkerOptions(
             base_options=mp.tasks.BaseOptions(model_asset_path=str(model)),
-            running_mode=mp.tasks.vision.RunningMode.IMAGE,
+            running_mode=mp.tasks.vision.RunningMode.VIDEO,
             num_hands=num_hands,
             min_hand_detection_confidence=min_detection_confidence,
             min_tracking_confidence=min_tracking_confidence,
             min_hand_presence_confidence=min_presence_confidence,
         )
         self._landmarker = mp.tasks.vision.HandLandmarker.create_from_options(options)
+        self._timestamp_ms = 0
+
+    def _next_timestamp_ms(self) -> int:
+        """Strictly increasing timestamp required by the VIDEO running mode."""
+        self._timestamp_ms = max(
+            self._timestamp_ms + 1, int(time.monotonic() * 1000)
+        )
+        return self._timestamp_ms
 
     def process(self, frame_bgr: np.ndarray) -> list[Hand]:
         """Detect all hands in a BGR frame and return :class:`Hand` objects."""
         frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
-        result = self._landmarker.detect(image)
+        result = self._landmarker.detect_for_video(image, self._next_timestamp_ms())
 
         hands: list[Hand] = []
         for landmarks, handedness in zip(result.hand_landmarks, result.handedness):

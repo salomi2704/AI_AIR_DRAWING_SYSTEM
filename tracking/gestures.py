@@ -60,15 +60,23 @@ class GestureClassifier:
 
     Precedence: a fully curled hand is always a **FIST** (erase), then a close
     thumb/index gap is a **PINCH**, then a fully open hand is an **OPEN_PALM**.
+
+    Pinch detection is *hysteretic*: the classifier latches onto a pinch below
+    ``pinch_ratio`` and only lets it go once the thumb/index gap grows beyond
+    ``pinch_exit_ratio``.  This stops the hand from flickering between hover
+    and draw while the fingers hover right around the boundary.
     """
 
     def __init__(
         self,
         pinch_ratio: float = config.PINCH_RATIO,
+        pinch_exit_ratio: float = config.PINCH_EXIT_RATIO,
         extension_factor: float = 1.05,
     ) -> None:
         self.pinch_ratio = pinch_ratio
+        self.pinch_exit_ratio = pinch_exit_ratio
         self.extension_factor = extension_factor
+        self._pinching = False
 
     def _finger_extended(self, hand: Hand, tip_idx: int, pip_idx: int) -> bool:
         """A finger is extended when its tip is clearly farther from the wrist
@@ -100,14 +108,21 @@ class GestureClassifier:
         )
         pinch_distance = _distance(thumb_tip, index_tip) / palm_size
 
+        threshold = self.pinch_exit_ratio if self._pinching else self.pinch_ratio
+        pinching = pinch_distance < threshold
+
         if not any(fingers):  # all four fingers curled => erase mode
             gesture = Gesture.FIST
-        elif pinch_distance < self.pinch_ratio:
+            self._pinching = False
+        elif pinching:
             gesture = Gesture.PINCH
+            self._pinching = True
         elif all(extended):
             gesture = Gesture.OPEN_PALM
+            self._pinching = False
         else:
             gesture = Gesture.NONE
+            self._pinching = False
 
         return GestureState(
             gesture=gesture,

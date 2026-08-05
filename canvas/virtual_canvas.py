@@ -64,6 +64,9 @@ class VirtualCanvas:
         self._undo_stack: list[Action] = []
         self._redo_stack: list[Action] = []
         self._history_limit = config.HISTORY_LIMIT
+        self._render_cache: Optional[np.ndarray] = None
+        self._preview_cache: Optional[tuple[int, int, np.ndarray]] = None
+        self._cache_dirty = True
 
     # ------------------------------------------------------------------
     # Coordinate mapping
@@ -102,6 +105,7 @@ class VirtualCanvas:
 
     def set_layer_visible(self, layer_id: int, visible: bool) -> None:
         self.layer(layer_id).visible = visible
+        self._mark_dirty()
 
     def iter_visible_layers(self) -> Iterator[Layer]:
         """Layers to draw, in stacking order (lowest id first)."""
@@ -147,6 +151,7 @@ class VirtualCanvas:
             return None
         layer = self.layer(stroke.layer_id)
         layer.strokes.append(stroke)
+        self._mark_dirty()
         action = Action(
             kind="add_stroke",
             layer_id=stroke.layer_id,
@@ -198,6 +203,7 @@ class VirtualCanvas:
         erased = sum(len(r.before.points) - len(r.after.points) for r in records)
         if records:
             self._commit(Action(kind="erase", records=records))
+            self._mark_dirty()
         return erased
 
     # ------------------------------------------------------------------
@@ -217,6 +223,7 @@ class VirtualCanvas:
             )
         )
         layer.strokes.clear()
+        self._mark_dirty()
 
     def clear_all(self) -> None:
         """Clear every layer (each clear is undoable independently)."""
@@ -239,6 +246,7 @@ class VirtualCanvas:
         action = self._undo_stack.pop()
         self._undo(action)
         self._redo_stack.append(action)
+        self._mark_dirty()
         return True
 
     def redo(self) -> bool:
@@ -248,6 +256,7 @@ class VirtualCanvas:
         action = self._redo_stack.pop()
         self._redo(action)
         self._undo_stack.append(action)
+        self._mark_dirty()
         return True
 
     @staticmethod
@@ -314,26 +323,29 @@ class VirtualCanvas:
     # Rendering
     # ------------------------------------------------------------------
     @staticmethod
-    def _render_strokes(
-        image: np.ndarray, strokes: list[Stroke]
+    def _render_points(
+        image: np.ndarray,
+        points: list[Point],
+        color_hex: str,
+        thickness: int,
     ) -> np.ndarray:
+        bgr = config.hex_to_bgr(color_hex)
+        if len(points) >= 2:
+            pts = np.asarray(points, dtype=np.int32).reshape(-1, 1, 2)
+            cv2.polylines(image, [pts], False, bgr, thickness, cv2.LINE_AA)
+        elif len(points) == 1:
+            x, y = points[0]
+            cv2.circle(
+                image, (x, y), max(1, thickness // 2), bgr, -1, cv2.LINE_AA
+            )
+        return image
+
+    @classmethod
+    def _render_strokes(cls, image: np.ndarray, strokes: list[Stroke]) -> np.ndarray:
         for stroke in strokes:
-            bgr = config.hex_to_bgr(stroke.color_hex)
-            if len(stroke.points) >= 2:
-                pts = np.asarray(stroke.points, dtype=np.int32).reshape(-1, 1, 2)
-                cv2.polylines(
-                    image, [pts], False, bgr, stroke.thickness, cv2.LINE_AA
-                )
-            elif len(stroke.points) == 1:
-                x, y = stroke.points[0]
-                cv2.circle(
-                    image,
-                    (x, y),
-                    max(1, stroke.thickness // 2),
-                    bgr,
-                    -1,
-                    cv2.LINE_AA,
-                )
+            cls._render_points(
+                image, stroke.points, stroke.color_hex, stroke.thickness
+            )
         return image
 
     def render_layer(self, layer_id: int) -> np.ndarray:
@@ -342,11 +354,15 @@ class VirtualCanvas:
         image = np.full((self.height, self.width, 3), 255, dtype=np.uint8)
         return self._render_strokes(image, layer.strokes)
 
-    def render(
-        self,
-        background: tuple[int, int, int] = (255, 255, 255),
+    def _mark_dirty(self) -> None:
+        """Invalidate the cached renders so they rebuild on next render."""
+        self._render_cache = None
+        self._preview_cache = None
+        self._cache_dirty = True
+
+    def _build_image(
+        self, background: tuple[int, int, int] = (255, 255, 255)
     ) -> np.ndarray:
-        """Render the whole canvas (visible layers) to a BGR image."""
         image = np.full((self.height, self.width, 3), background, dtype=np.uint8)
         for layer in self.iter_visible_layers():
             if layer.opacity >= 1.0:
@@ -355,4 +371,65 @@ class VirtualCanvas:
                 overlay = np.full_like(image, 255)
                 self._render_strokes(overlay, layer.strokes)
                 image = cv2.addWeighted(image, 1.0, overlay, layer.opacity, 0)
+        return image
+
+    def render(
+        self,
+        background: tuple[int, int, int] = (255, 255, 255),
+        include_active: bool = False,
+    ) -> np.ndarray:
+        """Render the whole canvas (visible layers) to a BGR image.
+
+        Committed strokes are cached and only re-rendered when something
+        changes, so per-frame calls are cheap.  Pass ``include_active=True``
+        to also draw the in-progress stroke (returns a copy; the cache is
+        never mutated).  Callers must treat the returned array as read-only.
+        """
+        if self._cache_dirty or self._render_cache is None:
+            self._render_cache = self._build_image(background)
+            self._cache_dirty = False
+        if include_active and self._active_stroke is not None:
+            image = self._render_cache.copy()
+            return self._render_strokes(image, [self._active_stroke])
+        return self._render_cache
+
+    def render_scaled(
+        self,
+        width: int,
+        height: int,
+        background: tuple[int, int, int] = (255, 255, 255),
+        include_active: bool = False,
+    ) -> np.ndarray:
+        """Render the canvas downscaled to ``(width, height)``.
+
+        The downscaled image is cached per target size and only rebuilt when
+        something changes, so steady frames cost nothing.  ``include_active``
+        draws the in-progress stroke scaled into the preview (returns a copy).
+        """
+        if self._cache_dirty or self._render_cache is None:
+            self._render_cache = self._build_image(background)
+            self._cache_dirty = False
+        if (
+            self._preview_cache is None
+            or self._preview_cache[0] != width
+            or self._preview_cache[1] != height
+        ):
+            scaled = cv2.resize(
+                self._render_cache, (width, height), interpolation=cv2.INTER_AREA
+            )
+            self._preview_cache = (width, height, scaled)
+        image = self._preview_cache[2]
+        if include_active and self._active_stroke is not None:
+            image = image.copy()
+            sx = width / self.width
+            sy = height / self.height
+            scaled_points = [
+                (int(x * sx), int(y * sy)) for x, y in self._active_stroke.points
+            ]
+            self._render_points(
+                image,
+                scaled_points,
+                self._active_stroke.color_hex,
+                max(1, int(self._active_stroke.thickness * min(sx, sy))),
+            )
         return image

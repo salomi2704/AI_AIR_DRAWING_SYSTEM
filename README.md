@@ -1,13 +1,13 @@
 # AI Air Drawing System
 
 A real-time, gesture-based air drawing application built with computer
-vision. Draw in the air with your fingertip — pinch to draw, make a fist to
-erase, and use an open palm to drive an on-screen toolbar. The finished
-drawing can be run through OCR, shape/formula recognition and exported to
-SVG, PNG, PDF and LaTeX.
+vision. Draw in the air with your fingertip — pinch to draw with one hand,
+close both fists to erase, and use an open palm to drive an on-screen
+toolbar. The finished drawing can be run through OCR, shape/formula
+recognition and exported to SVG, PNG, PDF and LaTeX.
 
 ```
-   ✋ hover/UI      🤏 pinch = draw      ✊ fist = erase
+   ✋ hover/UI      🤏 pinch = draw (one hand)      ✊✊ two fists = erase
 ```
 
 ## Features
@@ -65,19 +65,26 @@ python app.py
 
 | Option | Description |
 |---|---|
-| `--camera N` | camera index (default `0`) |
-| `--width W --height H` | camera resolution (default `1280x720`) |
+| `--camera SRC` | camera index (default `0`) or path to a video file |
+| `--width W --height H` | requested camera resolution (default `1280x720`) |
 | `--no-recognize` | skip OCR/shape recognition for faster startup |
+
+The app logs the camera's actual resolution at startup and builds the toolbar
+to fit it, so it works with any webcam resolution. A `HAND / NO HAND` badge
+next to the toolbar shows whether tracking currently sees you.
 
 Once running, use the gestures below. Full gesture legend and keyboard
 shortcuts are in **[GESTURES.md](GESTURES.md)**.
 
 | Gesture | Action |
 |---|---|
-| Open palm | Hover / UI mode — cursor follows your index fingertip |
-| Pinch | Draw a stroke (hold + move) |
-| Pinch over a button | Tap — activates the toolbar button |
-| Fist | Erase under the fingertip |
+| Open palm (one hand) | Hover / UI mode — cursor follows your index fingertip |
+| Pinch (one hand) | Draw a stroke (hold + move) |
+| Pinch over a button (one hand) | Tap — activates the toolbar button |
+| Two fists (both hands) | Erase under the second hand's fingertip |
+
+Drawing is single-hand only and erasing requires **both** hands closed, so a
+second hand never draws by accident.
 
 **Recognition**: press `r` (or the *Recognize* button) to OCR the drawing,
 detect shapes/diagrams and extract formulas. Press `e` (or *Export*) to write

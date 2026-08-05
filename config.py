@@ -18,6 +18,7 @@ CAMERA_INDEX: int = 0
 CAMERA_WIDTH: int = 1280
 CAMERA_HEIGHT: int = 720
 FPS_TARGET: int = 30
+TRACKING_SCALE: float = 0.5  # factor applied to frames fed to MediaPipe
 
 # ---------------------------------------------------------------------------
 # Virtual canvas
@@ -48,8 +49,11 @@ MIN_PRESENCE_CONFIDENCE: float = 0.5
 # Gesture classification
 # ---------------------------------------------------------------------------
 PINCH_RATIO: float = 0.35  # pinch_distance / palm_size below this => pinch
-PINCH_TAP_MAX_FRAMES: int = 6  # pinch shorter than this counts as a tap
+PINCH_EXIT_RATIO: float = 0.49  # hysteresis: pinch drops out only above this
+ERASE_INTERVAL: float = 0.10  # seconds between consecutive erase passes
+ERASE_HAND_INDEX: int = 1  # which hand (0=first, 1=second) drives the eraser
 CURSOR_SMOOTHING: float = 0.6  # EMA alpha for cursor movement
+CURSOR_SPEED_GAIN: float = 8.0  # extra responsiveness while the hand moves
 
 # ---------------------------------------------------------------------------
 # UI / toolbar

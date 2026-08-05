@@ -65,16 +65,34 @@ class Toolbar:
         self.active_brush: int = config.BRUSH_SIZES[config.DEFAULT_INDEX_BRUSH]
         self.buttons: list[Button] = []
         self.hovered: Optional[Button] = None
+        self.scale: float = 1.0
         self._build()
 
     # ------------------------------------------------------------------
     # Layout
     # ------------------------------------------------------------------
     def _build(self) -> None:
-        """Place colour swatches, brush dots and action buttons in a strip."""
+        """Place colour swatches, brush dots and action buttons in a strip.
+
+        The layout is computed at the default size and then scaled down so the
+        whole strip always fits ``frame_width`` (narrow webcams included).
+        """
+        base_required = (
+            12 + 8 * 58 + 10 + 3 * 58 + 10 + 5 * (96 + 10)  # ~1200 px
+        )
+        available = self.frame_width - 12
+        self.scale = min(1.0, max(0.55, available / base_required))
+
+        pad_x = max(6, int(12 * self.scale))
+        swatch = max(20, int(48 * self.scale))
+        gap = max(swatch + 2, int(58 * self.scale))
+        action_w = max(30, int(96 * self.scale))
+        action_gap = max(4, int(10 * self.scale))
+        button_h = max(20, int(48 * self.scale))
+        y = (self.height - button_h) // 2
+
         buttons: list[Button] = []
-        x = 12
-        y = (self.height - 48) // 2
+        x = pad_x
         for name, hex_color in self.colors:
             buttons.append(
                 Button(
@@ -82,11 +100,11 @@ class Toolbar:
                     label=name,
                     kind="color",
                     color_hex=hex_color,
-                    rect=(x, y, 48, 48),
+                    rect=(x, y, swatch, button_h),
                 )
             )
-            x += 58
-        x += 10
+            x += gap
+        x += action_gap
         for size in self.brush_sizes:
             buttons.append(
                 Button(
@@ -94,11 +112,11 @@ class Toolbar:
                     label=str(size),
                     kind="brush",
                     brush_size=size,
-                    rect=(x, y, 48, 48),
+                    rect=(x, y, swatch, button_h),
                 )
             )
-            x += 58
-        x += 10
+            x += gap
+        x += action_gap
         for action_id, label in (
             ("undo", "Undo"),
             ("redo", "Redo"),
@@ -106,16 +124,15 @@ class Toolbar:
             ("export", "Export"),
             ("recognize", "Recognize"),
         ):
-            width = 96
             buttons.append(
                 Button(
                     id=action_id,
                     label=label,
                     kind="action",
-                    rect=(x, y, width, 48),
+                    rect=(x, y, action_w, button_h),
                 )
             )
-            x += width + 10
+            x += action_w + action_gap
         self.buttons = buttons
 
     # ------------------------------------------------------------------

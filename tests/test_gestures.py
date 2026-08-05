@@ -118,7 +118,66 @@ class GestureClassifierTest(unittest.TestCase):
         self.assertEqual(state.gesture, Gesture.FIST)
 
 
+class PinchHysteresisTest(unittest.TestCase):
+    """A latched pinch survives fingers opening past the entry threshold."""
+
+    def _relaxed_pinch_hand(self, thumb_tip=(0.50, 0.60)) -> Hand:
+        # synthetic pinch thumb tip sits at (0.44, 0.64), index tip at (0.44, 0.64).
+        # Moving the thumb tip to (0.50, 0.60) gives a normalised gap ~0.48,
+        # i.e. above PINCH_RATIO (0.35) but below PINCH_EXIT_RATIO (0.49).
+        hand = synthetic_hand(pinch=True)
+        hand.landmarks[THUMB_TIP_IDX] = Landmark(*thumb_tip, 0.0)
+        return hand
+
+    def test_latched_pinch_survives_boundary_jitter(self) -> None:
+        classifier = GestureClassifier()
+        self.assertEqual(
+            classifier.classify(synthetic_hand(pinch=True)).gesture,
+            Gesture.PINCH,
+        )
+        state = classifier.classify(self._relaxed_pinch_hand())
+        self.assertEqual(state.gesture, Gesture.PINCH)
+        self.assertGreater(state.pinch_distance, classifier.pinch_ratio)
+
+    def test_fully_open_hand_after_pinch_releases(self) -> None:
+        classifier = GestureClassifier()
+        classifier.classify(synthetic_hand(pinch=True))
+        self.assertEqual(
+            classifier.classify(synthetic_hand()).gesture,
+            Gesture.OPEN_PALM,
+        )
+
+    def test_fresh_classifier_does_not_enter_above_entry_ratio(self) -> None:
+        classifier = GestureClassifier()
+        state = classifier.classify(self._relaxed_pinch_hand())
+        self.assertNotEqual(state.gesture, Gesture.PINCH)
+
+
 THUMB_TIP_IDX = 4
+
+
+class _FakeMpLandmark:
+    """Mimics a MediaPipe NormalizedLandmark (visibility may be None)."""
+
+    def __init__(self, x=0.1, y=0.2, z=0.3, visibility=None, presence=None):
+        self.x = x
+        self.y = y
+        self.z = z
+        self.visibility = visibility
+        self.presence = presence
+
+
+class LandmarkConversionTest(unittest.TestCase):
+    def test_from_mp_handles_none_visibility(self) -> None:
+        lm = Landmark.from_mp(_FakeMpLandmark())
+        self.assertEqual(lm.x, 0.1)
+        self.assertEqual(lm.visibility, 1.0)
+        self.assertEqual(lm.presence, 1.0)
+
+    def test_from_mp_keeps_real_visibility(self) -> None:
+        lm = Landmark.from_mp(_FakeMpLandmark(visibility=0.0, presence=0.5))
+        self.assertEqual(lm.visibility, 0.0)
+        self.assertEqual(lm.presence, 0.5)
 
 
 if __name__ == "__main__":

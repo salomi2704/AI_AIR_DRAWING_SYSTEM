@@ -84,12 +84,13 @@ class UIRenderer:
             fill = (110, 110, 200) if button.hovered else (60, 60, 110)
         cv2.rectangle(frame, (x, y), (x + w, y + h), fill, -1)
         cv2.rectangle(frame, (x, y), (x + w, y + h), (160, 160, 160), 2)
-        (tw, th), _ = cv2.getTextSize(
-            button.label, FONT, 0.55, 1
-        )
+        font_scale = max(0.35, 0.55 * self.toolbar.scale)
+        (tw, th), _ = cv2.getTextSize(button.label, FONT, font_scale, 1)
         tx = x + (w - tw) // 2
         ty = y + (h + th) // 2
-        cv2.putText(frame, button.label, (tx, ty), FONT, 0.55, (255, 255, 255), 1)
+        cv2.putText(
+            frame, button.label, (tx, ty), FONT, font_scale, (255, 255, 255), 1
+        )
 
     # ------------------------------------------------------------------
     # Cursor / status
@@ -99,15 +100,20 @@ class UIRenderer:
         frame: np.ndarray,
         position: tuple[int, int],
         gesture: Gesture,
+        radius: Optional[int] = None,
     ) -> np.ndarray:
-        """Draw the fingertip cursor; colour encodes the current mode."""
+        """Draw the fingertip cursor; colour encodes the current mode.
+
+        ``radius`` overrides the FIST cursor size (use the real erase radius
+        on screen) when erasing.
+        """
         if gesture == Gesture.PINCH:
             color = config.hex_to_bgr(self.toolbar.active_color)
             radius = max(4, self.toolbar.active_brush // 2)
             thickness = -1
         elif gesture == Gesture.FIST:
             color = (0, 0, 255)  # red = erasing
-            radius = 16
+            radius = radius if radius is not None else 16
             thickness = 3
         elif gesture == Gesture.OPEN_PALM:
             color = (255, 200, 0)  # orange = hovering UI
@@ -129,6 +135,24 @@ class UIRenderer:
                 color,
                 1,
             )
+        return frame
+
+    def draw_tracking_badge(self, frame: np.ndarray, hand_visible: bool) -> np.ndarray:
+        """Small \"HAND\" indicator under the toolbar; useful for diagnostics."""
+        label = "HAND" if hand_visible else "NO HAND"
+        color = (60, 200, 60) if hand_visible else (110, 110, 110)
+        font_scale = 0.5
+        (tw, th), _ = cv2.getTextSize(label, FONT, font_scale, 1)
+        x0 = frame.shape[1] - tw - 24
+        y0 = self.toolbar.height + 24
+        cv2.rectangle(
+            frame,
+            (x0 - 10, y0 - th - 6),
+            (x0 + tw + 10, y0 + 6),
+            (25, 25, 25),
+            -1,
+        )
+        cv2.putText(frame, label, (x0, y0), FONT, font_scale, color, 1)
         return frame
 
     def draw_status(self, frame: np.ndarray, text: str) -> np.ndarray:

@@ -154,6 +154,62 @@ class RenderingTest(unittest.TestCase):
         self.canvas.set_layer_visible(layer_id, False)
         self.assertTrue(np.all(self.canvas.render() == 255))
 
+    def _draw_line(self) -> None:
+        self.canvas.begin_stroke((10, 50), color_hex="#000000", thickness=8)
+        self.canvas.extend_stroke((150, 50))
+        self.canvas.end_stroke()
+
+    def test_active_stroke_rendered_only_when_requested(self) -> None:
+        self.canvas.begin_stroke((10, 50), color_hex="#000000", thickness=8)
+        self.canvas.extend_stroke((150, 50))
+        self.assertTrue(np.all(self.canvas.render() == 255))
+        active = self.canvas.render(include_active=True)
+        self.assertTrue(np.all(active[50, 80] < 128))
+
+    def test_render_include_active_does_not_mutate_cache(self) -> None:
+        self._draw_line()
+        baseline = self.canvas.render()
+        self.canvas.begin_stroke((10, 20), color_hex="#000000", thickness=8)
+        self.canvas.extend_stroke((150, 20))
+        self.canvas.render(include_active=True)
+        after = self.canvas.render()
+        self.assertTrue(np.all(after == baseline))
+
+    def test_render_cache_reflects_commit(self) -> None:
+        self.canvas.begin_stroke((10, 50), color_hex="#000000", thickness=8)
+        self.canvas.extend_stroke((150, 50))
+        self.assertTrue(np.all(self.canvas.render() == 255))
+        self.canvas.end_stroke()
+        self.assertTrue(np.all(self.canvas.render()[50, 80] < 128))
+
+    def test_undo_and_redo_invalidate_render_cache(self) -> None:
+        self._draw_line()
+        self.assertTrue(np.all(self.canvas.render()[50, 80] < 128))
+        self.canvas.undo()
+        self.assertTrue(np.all(self.canvas.render() == 255))
+        self.canvas.redo()
+        self.assertTrue(np.all(self.canvas.render()[50, 80] < 128))
+
+    def test_erase_invalidates_render_cache(self) -> None:
+        self._draw_line()
+        self.assertTrue(np.all(self.canvas.render()[50, 80] < 128))
+        self.canvas.erase_at((80, 50), radius=75)
+        self.assertTrue(np.all(self.canvas.render() == 255))
+
+    def test_render_scaled_shape_and_content(self) -> None:
+        self._draw_line()
+        image = self.canvas.render_scaled(100, 50)
+        self.assertEqual(image.shape, (50, 100, 3))
+        self.assertTrue(np.all(image[25, 40] < 128))
+
+    def test_render_scaled_reflects_mutations(self) -> None:
+        self._draw_line()
+        self.assertTrue(np.all(self.canvas.render_scaled(100, 50)[25, 40] < 128))
+        self.canvas.undo()
+        self.assertTrue(np.all(self.canvas.render_scaled(100, 50) == 255))
+        self.canvas.redo()
+        self.assertTrue(np.all(self.canvas.render_scaled(100, 50)[25, 40] < 128))
+
 
 if __name__ == "__main__":
     unittest.main()
