@@ -29,6 +29,7 @@ import numpy as np
 import config
 from ai_assist import LatexConverter, SketchCleaner, get_summarizer
 from canvas import VirtualCanvas
+from canvas.composite import composite_white_key
 from core import (
     FPSMeter,
     FramePacer,
@@ -37,6 +38,7 @@ from core import (
     apply_toolbar_action,
     resolve_mode,  # re-exported for backward compatibility
 )
+from core.adaptive import AdaptiveResolution
 from export import ExportBundle, ExportError, export_all
 from recognition import FormulaDetector, OCRRecognizer, ShapeRecognizer
 from storage import AutosaveManager
@@ -140,6 +142,9 @@ class AirDrawingApp:
         self._last_recognition: dict = {}
         self._fps = FPSMeter()
         self._pacer = FramePacer()
+        self._adaptive = (
+            AdaptiveResolution() if config.ADAPTIVE_RESOLUTION_ENABLED else None
+        )
 
     # ------------------------------------------------------------------
     # Setup
@@ -177,13 +182,23 @@ class AirDrawingApp:
                 frame = cv2.flip(frame, 1)  # mirror the feed like a mirror
                 self._frame_width, self._frame_height = frame.shape[1], frame.shape[0]
 
+                # FPS is measured at the top of the loop so it reflects the
+                # previous frame's true cost and can steer this frame's budget.
+                fps = self._fps.tick()
+
+                # Adaptive tracking resolution: landmarks are normalised, so
+                # shrinking the MediaPipe input costs nothing on the mapping
+                # side while cutting the dominant tracking cost quadratically.
+                track_scale = config.TRACKING_SCALE
+                if self._adaptive is not None:
+                    track_scale = config.TRACKING_SCALE * self._adaptive.update(fps)
                 track_frame = frame
-                if config.TRACKING_SCALE < 1.0:
+                if track_scale < 1.0:
                     track_frame = cv2.resize(
                         frame,
                         (0, 0),
-                        fx=config.TRACKING_SCALE,
-                        fy=config.TRACKING_SCALE,
+                        fx=track_scale,
+                        fy=track_scale,
                     )
                 hands = self._smooth_hands(self.tracker.process(track_frame))
                 self._hand_seen = bool(hands)
@@ -202,7 +217,6 @@ class AirDrawingApp:
                 if self.autosave is not None:
                     self.autosave.maybe_save()
 
-                fps = self._fps.tick()
                 frame = self._draw_scene(frame, update, fps)
                 cv2.imshow(WINDOW_NAME, frame)
                 if not self._handle_keys(cv2.waitKey(1) & 0xFF):
@@ -329,12 +343,9 @@ class AirDrawingApp:
         canvas_image = self.canvas.render_scaled(
             frame.shape[1], frame.shape[0], include_active=True
         )
-        white = cv2.inRange(canvas_image, (250, 250, 250), (255, 255, 255))
-        strokes = cv2.bitwise_and(
-            canvas_image, canvas_image, mask=cv2.bitwise_not(white)
+        frame = composite_white_key(
+            frame, canvas_image, threshold=config.COMPOSITE_THRESHOLD
         )
-        background = cv2.bitwise_and(frame, frame, mask=white)
-        frame = cv2.add(strokes, background)
 
         self.hud.draw_toolbar(frame)
         self.hud.draw_tracking_badge(frame, self._hand_seen)

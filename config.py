@@ -21,6 +21,16 @@ FPS_TARGET: int = 30
 TRACKING_SCALE: float = 0.5  # factor applied to frames fed to MediaPipe
 
 # ---------------------------------------------------------------------------
+# Performance
+# ---------------------------------------------------------------------------
+ADAPTIVE_RESOLUTION_ENABLED: bool = True  # shrink MediaPipe input when FPS drops
+# Multipliers applied to TRACKING_SCALE (landmarks are normalised, so the
+# tracked result is unaffected by the input resolution).
+ADAPTIVE_MIN_SCALE: float = 0.5
+ADAPTIVE_MAX_SCALE: float = 1.0
+COMPOSITE_THRESHOLD: int = 250  # pixels >= this in every channel are "white"
+
+# ---------------------------------------------------------------------------
 # Virtual canvas
 # ---------------------------------------------------------------------------
 CANVAS_WIDTH: int = 1920
