@@ -27,6 +27,8 @@ CANVAS_HEIGHT: int = 1080
 DEFAULT_BRUSH_SIZE: int = 10
 ERASE_RADIUS: float = 0.035  # normalized to canvas diagonal
 MAX_LAYERS: int = 8
+HISTORY_LIMIT: int = 50  # max undo steps kept
+MIN_STROKE_DISTANCE: float = 1.5  # px, min gap between stroke points
 
 # ---------------------------------------------------------------------------
 # Hand landmark tracking (MediaPipe Tasks API)
