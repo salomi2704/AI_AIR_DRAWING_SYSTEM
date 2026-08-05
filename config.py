@@ -99,6 +99,17 @@ SHAPE_MIN_POINTS: int = 12  # strokes with fewer points are treated as lines
 CLEANUP_ENABLED: bool = True
 CLEANUP_THRESHOLD: float = 0.08  # relative fit error allowed before snapping
 
+# LLM assistant provider.  Name selects the backend: "offline" (no network,
+# deterministic rules), "openai", "gemini", "claude" or "ollama" (local).
+ASSIST_PROVIDER: str = "offline"
+ASSIST_TIMEOUT: float = 20.0  # seconds before an LLM request times out
+ASSIST_OPENAI_BASE_URL: str = "https://api.openai.com/v1"
+ASSIST_OPENAI_MODEL: str = "gpt-4o-mini"
+ASSIST_GEMINI_MODEL: str = "gemini-2.0-flash"
+ASSIST_CLAUDE_MODEL: str = "claude-3-5-haiku-latest"
+ASSIST_OLLAMA_BASE_URL: str = "http://localhost:11434/v1"
+ASSIST_OLLAMA_MODEL: str = "llama3.2"
+
 # ---------------------------------------------------------------------------
 # Export
 # ---------------------------------------------------------------------------

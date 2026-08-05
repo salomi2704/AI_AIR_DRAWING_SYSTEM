@@ -23,3 +23,4 @@ class ExportBundle:
     shapes: list[Shape] = field(default_factory=list)
     diagram: Optional[Diagram] = None
     latex: list[str] = field(default_factory=list)
+    summary: str = ""  # natural-language summary (offline or LLM generated)

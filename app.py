@@ -27,7 +27,7 @@ import cv2
 import numpy as np
 
 import config
-from ai_assist import LatexConverter, SketchCleaner
+from ai_assist import LatexConverter, SketchCleaner, get_summarizer
 from canvas import VirtualCanvas
 from core import (
     FPSMeter,
@@ -266,12 +266,14 @@ class AirDrawingApp:
             formula = self.formulas.extract(region.text)
             if formula:
                 latex.append(self.latex.to_latex(formula))
+        summary = get_summarizer().summarize(shapes, regions, latex)
 
         self._last_recognition = {
             "text_regions": regions,
             "shapes": shapes,
             "diagram": diagram,
             "latex": latex,
+            "summary": summary,
         }
         self._flash_status(
             f"Recognized {len(regions)} text, {len(shapes)} shapes, {len(latex)} formulas"
@@ -285,6 +287,7 @@ class AirDrawingApp:
             shapes=self._last_recognition.get("shapes", []),
             diagram=self._last_recognition.get("diagram"),
             latex=self._last_recognition.get("latex", []),
+            summary=self._last_recognition.get("summary", ""),
         )
         base_name = "airdraw_" + time.strftime("%Y%m%d_%H%M%S")
         try:

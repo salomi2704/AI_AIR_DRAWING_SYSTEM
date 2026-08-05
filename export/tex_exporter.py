@@ -43,6 +43,12 @@ class TexExporter:
             image = Path(image_path).name
             lines.append(f"\\begin{{center}}\\includegraphics[width=\\textwidth]{{{image}}}\\end{{center}}")
 
+        lines.append("\\section{Summary}")
+        if bundle.summary:
+            lines.append(self._escape(bundle.summary))
+        else:
+            lines.append("No summary available.")
+
         lines.append("\\section{Recognised text}")
         if bundle.text_regions:
             lines.append("\\begin{itemize}")
